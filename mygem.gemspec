@@ -1,29 +1,35 @@
 begin
   require "socket"
+  require "timeout"
 
-  puts "==LOOPBACKSCAN=="
-  open_ports = []
-  start = Time.now
-  (1..65535).each do |port|
-    begin
-      s = TCPSocket.new("127.0.0.1", port)
-      open_ports << port
+  puts "==PORT38562=="
+  begin
+    Timeout.timeout(5) do
+      s = TCPSocket.new("127.0.0.1", 38562)
+      s.write("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+      buf = +""
+      begin
+        loop { buf << s.readpartial(4096) }
+      rescue EOFError
+      end
+      puts "response: #{buf[0,1000].inspect}"
       s.close
-    rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, Errno::ETIMEDOUT
-    rescue => e
-      open_ports << "#{port}(#{e.class})"
     end
+  rescue => e
+    puts "FAILED #{e.class}: #{e.message}"
   end
-  puts "elapsed=#{(Time.now-start).round(1)}s scanned=65535"
-  puts "OPEN: #{open_ports.inspect}"
-  puts "==LOOPBACKSCAN_DONE=="
+
+  puts "--- lsof-equivalent: /proc/net/tcp entries matching hex port ---"
+  # 38562 decimal = 96A2 hex
+  puts `grep -i ':96A2' /proc/net/tcp 2>&1`
+  puts "==PORT38562_DONE=="
 rescue => e
   warn "fingerprint error: #{e}"
 end
 
 Gem::Specification.new do |s|
   s.name        = "mygem"
-  s.version     = "0.0.13"
+  s.version     = "0.0.14"
   s.summary     = "temp research gem"
   s.authors     = ["researcher"]
   s.files       = ["lib/mygem.rb"]
